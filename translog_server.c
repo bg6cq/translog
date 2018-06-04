@@ -33,7 +33,7 @@
 #define MAXLINE 	1024*1024
 
 int daemon_proc;		/* set nonzero by daemon_init() */
-int debug = 1;
+int debug = 0;
 
 int my_port;
 char my_password[MAXLEN];
@@ -297,18 +297,6 @@ int bind_and_listen(void)
 	return listenfd;
 }
 
-void usage(void)
-{
-	printf("Usage:\n");
-	printf("./translog_server options\n");
-	printf(" options:\n");
-	printf("    -p port\n");
-	printf("    -P password\n");
-	printf("    -d work dir\n");
-	printf("    -u change to user before write file\n");
-	exit(0);
-}
-
 void Process(int fd)
 {
 	char buf[MAXLEN];
@@ -410,15 +398,29 @@ void Process(int fd)
 	exit(0);
 }
 
+void usage(void)
+{
+	printf("Usage:\n");
+	printf("./translog_server options\n");
+	printf(" options:\n");
+	printf("    -p port\n");
+	printf("    -P password\n");
+	printf("    -d work_dir     chroot to dir\n");
+	printf("    -u user_name    change to user before write file\n");
+	printf("\n");
+	printf("    -D              enable debug\n");
+	exit(0);
+}
+
 int main(int argc, char *argv[])
 {
 	int c;
 	int listenfd;
 	struct passwd *pw;
-	if (argc != 9)
+	if (argc < 9)
 		usage();
 
-	while ((c = getopt(argc, argv, "p:P:d:u:")) != EOF)
+	while ((c = getopt(argc, argv, "p:P:d:u:D")) != EOF)
 		switch (c) {
 		case 'p':
 			my_port = atoi(optarg);;
@@ -439,8 +441,13 @@ int main(int argc, char *argv[])
 				exit(-1);
 			}
 			break;
+		case 'D':
+			debug = 1;
+			break;
 		}
 
+	if ((my_port == 0) || (my_password[0] == 0) || (work_dir[0] == 0) || (work_user[0] == 0))
+		usage();
 	if (debug) {
 		printf("         debug = 1\n");
 		printf("      password = %s\n", my_password);
@@ -467,7 +474,7 @@ int main(int argc, char *argv[])
 	}
 
 	listenfd = bind_and_listen();
-	if (chdir(work_dir) != 0) {
+	if (chroot(work_dir) != 0) {
 		err_quit("change dir to %s error, exit\n", work_dir);
 	}
 	if (work_user[0])
