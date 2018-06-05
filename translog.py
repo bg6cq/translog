@@ -43,9 +43,11 @@ except socket.error, (value,message):
 print 'Socket connected to ' + host + ' on IP ' + host_ip + ' port ' + str(port) + '.'
 
 s.send('PASS '+pass_word+'\n')
-print 'send pass'
 data = s.recv(100)
-print 'S ', data
+print 'S', data
+if data[0:2] != 'OK':
+    print 'exit with return code 255'
+    sys.exit(-1)
 
 file_size = os.path.getsize(file_name)
 
@@ -63,9 +65,9 @@ try:
 finally:
     file.close()
 data = s.recv(100)
-print 'S ', data
+print 'S', data
 if data[0:2] == 'OK':
-    print 'OK, return 0'
+    print 'OK, exit with return code 0'
     sys.exit(0)
 else:
     sys.exit(-1)

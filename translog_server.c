@@ -36,8 +36,7 @@ int daemon_proc;		/* set nonzero by daemon_init() */
 int debug = 0;
 
 int my_port;
-char my_password[MAXLEN];
-char work_dir[MAXLEN];
+char config_file[MAXLEN];
 char work_user[MAXLEN];
 int work_uid;
 
@@ -305,14 +304,57 @@ void Process(int fd)
 	size_t file_len;
 	size_t file_got = 0;
 	int n;
+	int pass_ok;
 	while (1) {		// PASS password check
+		FILE *fp;
+		char file_buf[MAXLEN];
+		pass_ok = 0;
 		n = Readline(fd, buf, MAXLEN);
 		buf[n] = 0;
 		if (memcmp(buf, "PASS ", 5) != 0)
 			continue;
 		if (buf[strlen(buf) - 1] == '\n')
 			buf[strlen(buf) - 1] = 0;
-		if (strcmp(buf + 5, my_password) == 0)
+		if (strlen(buf + 5) == 0)
+			continue;
+		fp = fopen(config_file, "r");
+		if (fp == NULL) {
+			strcpy(buf, "ERROR open config file\n");
+			Writen(fd, buf, strlen(buf));
+			exit(-1);
+		}
+		while (fgets(file_buf, MAXLEN, fp)) {
+			if (file_buf[0] == '#')
+				continue;
+			if (file_buf[strlen(file_buf) - 1] == '\n')
+				file_buf[strlen(file_buf) - 1] = 0;
+			p = file_buf;
+			while (*p && (*p != ' '))
+				p++;
+			if (*p == 0)
+				continue;
+			*p = 0;
+			p++;
+			if (strcmp(buf + 5, file_buf) == 0) {
+				pass_ok = 1;
+				while (*p && (*p == ' '))
+					p++;
+
+				if (debug)
+					fprintf(stderr, "password ok, work_dir is %s\n", p);
+				if (chroot(p) != 0) {
+					perror("chroot");
+					snprintf(buf, MAXLEN, "ERROR chroot to %s\n", p);
+					Writen(fd, buf, strlen(buf));
+					exit(-1);
+				}
+				setuid(work_uid);
+				chdir("/");
+				break;
+			}
+		}
+		fclose(fp);
+		if (pass_ok)
 			break;
 		strcpy(buf, "ERROR password\n");
 		Writen(fd, buf, strlen(buf));
@@ -351,6 +393,8 @@ void Process(int fd)
 		Writen(fd, buf, strlen(buf));
 		exit(-1);
 	}
+	if (debug)
+		fprintf(stderr, "file %s open for write\n", file_name);
 	if (file_len == 0) {
 		char buf[MAXLINE];
 		while (1) {
@@ -367,6 +411,8 @@ void Process(int fd)
 				Writen(fd, buf, strlen(buf));
 				exit(-1);
 			}
+			if (debug)
+				fprintf(stderr, "write %zu\n", file_len);
 		}
 	}
 	while (1) {
@@ -379,7 +425,7 @@ void Process(int fd)
 		else
 			n = Readn(fd, buf, remains);
 		file_got += n;
-		if (n == 0) {	// read end of file
+		if (n == 0) {	// end of file
 			fclose(fp);
 			snprintf(buf, 100, "ERROR file length %zu\n", file_got);
 			Writen(fd, buf, strlen(buf));
@@ -391,6 +437,8 @@ void Process(int fd)
 			Writen(fd, buf, strlen(buf));
 			exit(-1);
 		}
+		if (debug)
+			fprintf(stderr, "write %zu of %zu\n", file_got, file_len);
 	}
 	fclose(fp);
 	snprintf(buf, 100, "OK file length %zu\n", file_got);
@@ -404,11 +452,14 @@ void usage(void)
 	printf("./translog_server options\n");
 	printf(" options:\n");
 	printf("    -p port\n");
-	printf("    -P password\n");
-	printf("    -d work_dir     chroot to dir\n");
+	printf("    -f config_file\n");
 	printf("    -u user_name    change to user before write file\n");
 	printf("\n");
-	printf("    -D              enable debug\n");
+	printf("    -d              enable debug\n");
+	printf("\n");
+	printf("config_file:\n");
+	printf("password work_dir\n");
+	printf("...\n");
 	exit(0);
 }
 
@@ -417,19 +468,16 @@ int main(int argc, char *argv[])
 	int c;
 	int listenfd;
 	struct passwd *pw;
-	if (argc < 9)
+	if (argc < 7)
 		usage();
 
-	while ((c = getopt(argc, argv, "p:P:d:u:D")) != EOF)
+	while ((c = getopt(argc, argv, "p:f:u:d")) != EOF)
 		switch (c) {
 		case 'p':
 			my_port = atoi(optarg);;
 			break;
-		case 'P':
-			strncpy(my_password, optarg, MAXLEN - 1);
-			break;
-		case 'd':
-			strncpy(work_dir, optarg, MAXLEN - 1);
+		case 'f':
+			strncpy(config_file, optarg, MAXLEN - 1);
 			break;
 		case 'u':
 			strncpy(work_user, optarg, MAXLEN - 1);
@@ -441,20 +489,19 @@ int main(int argc, char *argv[])
 				exit(-1);
 			}
 			break;
-		case 'D':
+		case 'd':
 			debug = 1;
 			break;
 		}
 
-	if ((my_port == 0) || (my_password[0] == 0) || (work_dir[0] == 0) || (work_user[0] == 0))
+	if ((my_port == 0) || (config_file[0] == 0) || (work_user[0] == 0))
 		usage();
 	if (debug) {
 		printf("         debug = 1\n");
-		printf("      password = %s\n", my_password);
-		printf("      work dir = %s\n", work_dir);
+		printf("          port = %d\n", my_port);
 		printf("     work user = %s\n", work_user);
 		printf("      work uid = %d\n", work_uid);
-		printf("          port = %d\n", my_port);
+		printf("   config_file = %s\n", config_file);
 		printf("\n");
 	}
 
@@ -474,11 +521,6 @@ int main(int argc, char *argv[])
 	}
 
 	listenfd = bind_and_listen();
-	if (chroot(work_dir) != 0) {
-		err_quit("change dir to %s error, exit\n", work_dir);
-	}
-	if (work_user[0])
-		setuid(work_uid);
 	while (1) {
 		int infd;
 		int pid;
