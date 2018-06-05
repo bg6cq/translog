@@ -111,6 +111,7 @@ void daemon_init(const char *pname, int facility)
 	setsid();		/* become session leader */
 
 	signal(SIGHUP, SIG_IGN);
+	signal(SIGCHLD, SIG_IGN);
 	if ((pid = fork()) != 0)
 		exit(0);	/* 1st child terminates */
 
