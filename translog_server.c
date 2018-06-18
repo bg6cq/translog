@@ -306,6 +306,11 @@ void Process(int fd)
 	size_t file_got = 0;
 	int n;
 	int pass_ok;
+
+//      password check
+// C -> PASS pasword
+// S    open config_file.txt read password and work_dir, chroot(work_dir), setuid(work_uid)
+//      
 	while (1) {		// PASS password check
 		FILE *fp;
 		char file_buf[MAXLEN];
@@ -362,6 +367,10 @@ void Process(int fd)
 	}
 	strcpy(buf, "OK password ok\n");
 	Writen(fd, buf, strlen(buf));
+
+//
+// C -> FILE file_name [size]
+//
 	n = Readline(fd, buf, MAXLEN);
 	buf[n] = 0;
 	if (memcmp(buf, "FILE ", 5) != 0)	// FILE file_name [file_len]
@@ -384,9 +393,40 @@ void Process(int fd)
 	if (debug)
 		fprintf(stderr, "file %s len: %zu\n", file_name, file_len);
 	if (access(file_name, F_OK) != -1) {	// file exists
-		strcpy(buf, "ERROR file exists\n");
+		strcpy(buf, "ERROR file exist\n");
 		Writen(fd, buf, strlen(buf));
+		if (debug)
+			fprintf(stderr, "file %s exist, exit\n", file_name);
 		exit(-1);
+	}
+	if (strchr(file_name, '/')) {	// file_name has directory, check and mkdir 
+		char str[MAXLEN];
+		int i, len;
+		strncpy(str, file_name, MAXLEN);
+		len = strlen(str);
+		// find the last '/'
+		for (i = len - 1; i >= 0; i--)
+			if (str[i] == '/') {
+				str[i] = 0;
+				break;
+			}
+		len = strlen(str);
+		for (i = 0; i < len; i++) {
+			if (str[i] == '/') {
+				str[i] = '\0';
+				if (access(str, 0) != 0) {
+					if (debug)
+						fprintf(stderr, "mkdir %s\n", str);
+					mkdir(str, 0733);
+				}
+				str[i] = '/';
+			}
+		}
+		if (len > 0 && access(str, 0) != 0) {
+			if (debug)
+				fprintf(stderr, " mkdir %s\n", str);
+			mkdir(str, 0733);
+		}
 	}
 	FILE *fp = fopen(file_name, "w");
 	if (fp == NULL) {
@@ -405,11 +445,15 @@ void Process(int fd)
 				fclose(fp);
 				snprintf(buf, 100, "OK file length %zu\n", file_len);
 				Writen(fd, buf, strlen(buf));
+				if (debug)
+					fprintf(stderr, "write %zu\n", file_len);
 				exit(0);
 			}
 			if (fwrite(buf, 1, n, fp) != n) {
 				strcpy(buf, "ERROR file write\n");
 				Writen(fd, buf, strlen(buf));
+				if (debug)
+					fprintf(stderr, "write %zu\n", file_len);
 				exit(-1);
 			}
 			if (debug)

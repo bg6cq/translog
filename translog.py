@@ -64,6 +64,9 @@ else:
     CHUNKSIZE=1024*1024
     file = open(file_name, "rb")
     s.send('FILE '+file_new_name+' '+str(file_size)+'\n')
+    if file_size == 0:
+        print '0 size file, just exit'
+        sys.exit(0)
     try:
         while True:
             bytes_read = file.read(CHUNKSIZE)
